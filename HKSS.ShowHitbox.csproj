@@ -8,11 +8,12 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Folder Include="Lib\"/>
+        <Folder Include="Lib\" />
     </ItemGroup>
 
     <ItemGroup>
-        <Analyzer Include="Lib\BepInExUtils.Generator.dll"/>
+        <Analyzer Include="Lib\BepInExUtils.Generator.dll" />
+		<PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" PrivateAssets="all"/>
         <Reference Include="0Harmony">
             <HintPath>..\HKSS.NoEnemies\Lib\0Harmony.dll</HintPath>
         </Reference>
@@ -82,12 +83,15 @@
         <Reference Include="UnityEngine.PhysicsModule">
             <HintPath>..\HKSS.NoEnemies\Lib\UnityEngine.PhysicsModule.dll</HintPath>
         </Reference>
+        <Reference Include="UnityEngine.PhysicsModule">
+            <HintPath>..\HKSS.NoEnemies\Lib\UnityEngine.TextRenderingModule.dll</HintPath>
+        </Reference>
     </ItemGroup>
 
     <ItemGroup>
-        <Content Include=".github\workflows\pre-release.yml"/>
-        <Content Include=".github\workflows\release.yml"/>
-        <Content Include=".packaging\thunderstore.toml"/>
+        <Content Include=".github\workflows\pre-release.yml" />
+        <Content Include=".github\workflows\release.yml" />
+        <Content Include=".packaging\thunderstore.toml" />
     </ItemGroup>
 
 </Project>
