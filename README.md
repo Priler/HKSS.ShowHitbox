@@ -179,6 +179,9 @@ HKSS.ShowHitbox/
 
 This project is licensed under the [MIT License](LICENSE).
 
+## Author
+Abraham ([Priler](https://github.com/Priler))
+
 ## Credits
 
 - [**ykysnk**](https://www.nexusmods.com/hollowknightsilksong/users/176858715) - for his [original mod](https://www.nexusmods.com/hollowknightsilksong/mods/593)
