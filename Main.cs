@@ -1,4 +1,10 @@
-﻿using System;
+﻿﻿/*
+ Original code: https://github.com/T2PeNBiX99wcoxKv3A4g/HKSS.ShowHitbox
+ Original code author: Ykysnk
+ Modified by: Abraham (aka Priler)
+ */
+
+using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using BepInEx;
