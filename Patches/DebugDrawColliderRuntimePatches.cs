@@ -1,5 +1,6 @@
 using HarmonyLib;
 using HKSS.ShowHitbox.Behaviour;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 using static DebugDrawColliderRuntime;
@@ -12,12 +13,12 @@ internal class DebugDrawColliderRuntimePatches
     private const int GL_LINES = 1;
     private const int GL_TRIANGLES = 4;
 
-    // config flags
+    // Config flags
     private static bool FillEnabled => Configs.FillHitboxes;
     private static bool OutlineEnabled => Configs.OutlineHitboxes;
     private static float Alpha => Configs.FillAlpha;
 
-    // private fields from DebugDrawColliderRuntime in-game class
+    // Private fields from DebugDrawColliderRuntime
     private static readonly FieldInfo TypeField =
         typeof(DebugDrawColliderRuntime).GetField(
             "type", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -54,7 +55,8 @@ internal class DebugDrawColliderRuntimePatches
         var moreInfosController = __instance.GetComponent<MoreInfosController>()
                                ?? __instance.gameObject.AddComponent<MoreInfosController>();
 
-        moreInfosController?.DebugDrawColliderRuntime = __instance;
+        if (moreInfosController != null)
+            moreInfosController.DebugDrawColliderRuntime = __instance;
     }
 
     #endregion
@@ -67,29 +69,24 @@ internal class DebugDrawColliderRuntimePatches
         DebugDrawColliderRuntime __instance,
         CameraRenderHooks.CameraSource source)
     {
-        // skip if turned off or not in the main camera
         if (!DebugDrawColliderRuntime.IsShowing)
             return false;
 
         if (source != CameraRenderHooks.CameraSource.MainCamera)
             return false;
 
-        // get components for type detection
         var damageEnemies = DamageEnemiesField?.GetValue(__instance) as DamageEnemies;
         var damageHero = DamageHeroField?.GetValue(__instance) as DamageHero;
 
-        // original method's visibility check
         if (damageEnemies == null && damageHero != null && damageHero.damageDealt <= 0)
             return false;
 
         ColorType type = GetType(__instance);
         GameObject go = __instance.gameObject;
 
-        // check if we should render anything for this hitbox
         bool shouldFill = FillEnabled && ShouldFill(type, go);
         bool shouldOutline = OutlineEnabled && ShouldOutline(type, go);
 
-        // skip if neither fill nor outline should be rendered
         if (!shouldFill && !shouldOutline)
             return false;
 
@@ -99,7 +96,6 @@ internal class DebugDrawColliderRuntimePatches
 
         var tr = __instance.transform;
 
-        // get color via shared utility
         Color hitboxColor = HitboxColors.GetHitboxColor(go, type, 1f);
         Color fillColor = hitboxColor;
         fillColor.a = Alpha;
@@ -107,21 +103,21 @@ internal class DebugDrawColliderRuntimePatches
         GL.PushMatrix();
         mat.SetPass(0);
 
-        // draw fill first (if enabled for this type)
         if (shouldFill)
         {
             FillBoxes(__instance, tr, fillColor);
             FillPolygons(__instance, tr, fillColor);
             FillCircles(__instance, tr, fillColor);
+            FillCapsules(__instance, tr, fillColor);
         }
 
-        // draw outlines on top (if enabled for this type)
         if (shouldOutline)
         {
             DrawBoxOutlines(__instance, tr, hitboxColor);
             DrawPolygonOutlines(__instance, tr, hitboxColor);
             DrawCircleOutlines(__instance, tr, hitboxColor);
             DrawEdgeOutlines(__instance, tr, hitboxColor);
+            DrawCapsuleOutlines(__instance, tr, hitboxColor);
         }
 
         GL.PopMatrix();
@@ -135,7 +131,6 @@ internal class DebugDrawColliderRuntimePatches
 
     private static bool ShouldFill(ColorType type, GameObject go)
     {
-        // check for special categories first
         var damageEnemies = go.GetComponent<DamageEnemies>();
         if (damageEnemies != null)
             return Configs.FillPlayerAttack;
@@ -167,14 +162,17 @@ internal class DebugDrawColliderRuntimePatches
 
     private static bool ShouldOutline(ColorType type, GameObject go)
     {
-        // check for special categories first
         var damageEnemies = go.GetComponent<DamageEnemies>();
         if (damageEnemies != null)
             return Configs.OutlinePlayerAttack;
 
         var healthManager = go.GetComponent<HealthManager>();
         if (healthManager != null)
+        {
+            if (Configs.FillDanger && Configs.FillEnemy)
+                return Configs.OutlineDanger;
             return Configs.OutlineEnemy;
+        }
 
         var damageHero = go.GetComponent<DamageHero>();
         if (damageHero != null)
@@ -195,6 +193,221 @@ internal class DebugDrawColliderRuntimePatches
             ColorType.CameraLock => Configs.OutlineCameraLock,
             _ => false
         };
+    }
+
+    #endregion
+
+    #region Capsule Drawing Methods
+
+    private static void FillCapsules(DebugDrawColliderRuntime inst, Transform tr, Color fillColor)
+    {
+        var capsules = inst.GetComponents<CapsuleCollider2D>();
+        if (capsules == null || capsules.Length == 0)
+            return;
+
+        foreach (var capsule in capsules)
+        {
+            if (!capsule.enabled) continue;
+
+            Vector2 size = capsule.size;
+            Vector2 offset = capsule.offset;
+            CapsuleDirection2D direction = capsule.direction;
+
+            float radius, height;
+            if (direction == CapsuleDirection2D.Vertical)
+            {
+                radius = size.x / 2f;
+                height = Mathf.Max(0, size.y - size.x);
+            }
+            else
+            {
+                radius = size.y / 2f;
+                height = Mathf.Max(0, size.x - size.y);
+            }
+
+            GL.PushMatrix();
+            GL.MultMatrix(tr.localToWorldMatrix);
+
+            int segments = 16;
+
+            // Draw center rectangle if height > 0
+            if (height > 0)
+            {
+                GL.Begin(GL_TRIANGLES);
+                GL.Color(fillColor);
+
+                Vector3 halfHeight = direction == CapsuleDirection2D.Vertical
+                    ? new Vector3(0, height / 2f, 0)
+                    : new Vector3(height / 2f, 0, 0);
+
+                Vector3 perpendicular = direction == CapsuleDirection2D.Vertical
+                    ? new Vector3(radius, 0, 0)
+                    : new Vector3(0, radius, 0);
+
+                Vector3 center = offset.ToVector3(0f);
+
+                Vector3 v0 = center - halfHeight - perpendicular;
+                Vector3 v1 = center - halfHeight + perpendicular;
+                Vector3 v2 = center + halfHeight + perpendicular;
+                Vector3 v3 = center + halfHeight - perpendicular;
+
+                GL.Vertex(v0);
+                GL.Vertex(v1);
+                GL.Vertex(v2);
+
+                GL.Vertex(v2);
+                GL.Vertex(v3);
+                GL.Vertex(v0);
+
+                GL.End();
+            }
+
+            // Draw end caps (semicircles)
+            Vector3 cap1Center, cap2Center;
+            if (direction == CapsuleDirection2D.Vertical)
+            {
+                cap1Center = offset.ToVector3(0f) + new Vector3(0, height / 2f, 0);
+                cap2Center = offset.ToVector3(0f) - new Vector3(0, height / 2f, 0);
+            }
+            else
+            {
+                cap1Center = offset.ToVector3(0f) + new Vector3(height / 2f, 0, 0);
+                cap2Center = offset.ToVector3(0f) - new Vector3(height / 2f, 0, 0);
+            }
+
+            // Cap 1 (top/right semicircle)
+            GL.Begin(GL_TRIANGLES);
+            GL.Color(fillColor);
+
+            float startAngle1 = direction == CapsuleDirection2D.Vertical ? 0 : -Mathf.PI / 2f;
+            for (int i = 0; i < segments; i++)
+            {
+                float t0 = startAngle1 + (float)i / segments * Mathf.PI;
+                float t1 = startAngle1 + (float)(i + 1) / segments * Mathf.PI;
+
+                Vector3 pt0 = cap1Center + new Vector3(Mathf.Cos(t0) * radius, Mathf.Sin(t0) * radius, 0f);
+                Vector3 pt1 = cap1Center + new Vector3(Mathf.Cos(t1) * radius, Mathf.Sin(t1) * radius, 0f);
+
+                GL.Vertex(cap1Center);
+                GL.Vertex(pt0);
+                GL.Vertex(pt1);
+            }
+
+            GL.End();
+
+            // Cap 2 (bottom/left semicircle)
+            GL.Begin(GL_TRIANGLES);
+            GL.Color(fillColor);
+
+            float startAngle2 = direction == CapsuleDirection2D.Vertical ? Mathf.PI : Mathf.PI / 2f;
+            for (int i = 0; i < segments; i++)
+            {
+                float t0 = startAngle2 + (float)i / segments * Mathf.PI;
+                float t1 = startAngle2 + (float)(i + 1) / segments * Mathf.PI;
+
+                Vector3 pt0 = cap2Center + new Vector3(Mathf.Cos(t0) * radius, Mathf.Sin(t0) * radius, 0f);
+                Vector3 pt1 = cap2Center + new Vector3(Mathf.Cos(t1) * radius, Mathf.Sin(t1) * radius, 0f);
+
+                GL.Vertex(cap2Center);
+                GL.Vertex(pt0);
+                GL.Vertex(pt1);
+            }
+
+            GL.End();
+            GL.PopMatrix();
+        }
+    }
+
+    private static void DrawCapsuleOutlines(DebugDrawColliderRuntime inst, Transform tr, Color color)
+    {
+        var capsules = inst.GetComponents<CapsuleCollider2D>();
+        if (capsules == null || capsules.Length == 0)
+            return;
+
+        foreach (var capsule in capsules)
+        {
+            if (!capsule.enabled) continue;
+
+            Vector2 size = capsule.size;
+            Vector2 offset = capsule.offset;
+            CapsuleDirection2D direction = capsule.direction;
+
+            float radius, height;
+            if (direction == CapsuleDirection2D.Vertical)
+            {
+                radius = size.x / 2f;
+                height = Mathf.Max(0, size.y - size.x);
+            }
+            else
+            {
+                radius = size.y / 2f;
+                height = Mathf.Max(0, size.x - size.y);
+            }
+
+            GL.PushMatrix();
+            GL.MultMatrix(tr.localToWorldMatrix);
+            GL.Begin(GL_LINES);
+            GL.Color(color);
+
+            int segments = 16;
+
+            Vector3 cap1Center, cap2Center;
+            if (direction == CapsuleDirection2D.Vertical)
+            {
+                cap1Center = offset.ToVector3(0f) + new Vector3(0, height / 2f, 0);
+                cap2Center = offset.ToVector3(0f) - new Vector3(0, height / 2f, 0);
+            }
+            else
+            {
+                cap1Center = offset.ToVector3(0f) + new Vector3(height / 2f, 0, 0);
+                cap2Center = offset.ToVector3(0f) - new Vector3(height / 2f, 0, 0);
+            }
+
+            // Draw straight lines connecting the caps
+            if (height > 0)
+            {
+                Vector3 perpendicular = direction == CapsuleDirection2D.Vertical
+                    ? new Vector3(radius, 0, 0)
+                    : new Vector3(0, radius, 0);
+
+                GL.Vertex(cap1Center + perpendicular);
+                GL.Vertex(cap2Center + perpendicular);
+
+                GL.Vertex(cap1Center - perpendicular);
+                GL.Vertex(cap2Center - perpendicular);
+            }
+
+            // Cap 1 arc (top/right)
+            float startAngle1 = direction == CapsuleDirection2D.Vertical ? 0 : -Mathf.PI / 2f;
+            for (int i = 0; i < segments; i++)
+            {
+                float t0 = startAngle1 + (float)i / segments * Mathf.PI;
+                float t1 = startAngle1 + (float)(i + 1) / segments * Mathf.PI;
+
+                Vector3 pt0 = cap1Center + new Vector3(Mathf.Cos(t0) * radius, Mathf.Sin(t0) * radius, 0f);
+                Vector3 pt1 = cap1Center + new Vector3(Mathf.Cos(t1) * radius, Mathf.Sin(t1) * radius, 0f);
+
+                GL.Vertex(pt0);
+                GL.Vertex(pt1);
+            }
+
+            // Cap 2 arc (bottom/left)
+            float startAngle2 = direction == CapsuleDirection2D.Vertical ? Mathf.PI : Mathf.PI / 2f;
+            for (int i = 0; i < segments; i++)
+            {
+                float t0 = startAngle2 + (float)i / segments * Mathf.PI;
+                float t1 = startAngle2 + (float)(i + 1) / segments * Mathf.PI;
+
+                Vector3 pt0 = cap2Center + new Vector3(Mathf.Cos(t0) * radius, Mathf.Sin(t0) * radius, 0f);
+                Vector3 pt1 = cap2Center + new Vector3(Mathf.Cos(t1) * radius, Mathf.Sin(t1) * radius, 0f);
+
+                GL.Vertex(pt0);
+                GL.Vertex(pt1);
+            }
+
+            GL.End();
+            GL.PopMatrix();
+        }
     }
 
     #endregion
@@ -285,9 +498,9 @@ internal class DebugDrawColliderRuntimePatches
             );
             if (points < 8) points = 8;
 
-            GL.Begin(GL_LINES);
             GL.PushMatrix();
             GL.MultMatrix(tr.localToWorldMatrix);
+            GL.Begin(GL_LINES);
             GL.Color(color);
 
             Vector3 center = circle.offset.ToVector3(0f);
@@ -311,8 +524,8 @@ internal class DebugDrawColliderRuntimePatches
                 GL.Vertex(pt1);
             }
 
-            GL.PopMatrix();
             GL.End();
+            GL.PopMatrix();
         }
     }
 
@@ -476,7 +689,7 @@ internal class DebugDrawColliderRuntimePatches
 
     #endregion
 
-    #region Triangulation (bravo six going dark xD)
+    #region Triangulation
 
     private static List<int> TriangulatePolygon(Vector2[] points)
     {
@@ -512,9 +725,7 @@ internal class DebugDrawColliderRuntimePatches
         for (int v = nv - 1; nv > 2;)
         {
             if (count-- <= 0)
-            {
                 return FallbackTriangulate(points);
-            }
 
             int u = v;
             if (u >= nv) u = 0;

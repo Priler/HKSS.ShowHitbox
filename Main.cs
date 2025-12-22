@@ -1,12 +1,14 @@
-﻿/*
- Original code: https://github.com/T2PeNBiX99wcoxKv3A4g/HKSS.ShowHitbox
- Original code author: Ykysnk
- Modified by: Abraham (aka Priler)
- */
-
+﻿using System;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using BepInEx;
+using BepInEx.Configuration;
 using BepInExUtils.Attributes;
+using BepInExUtils.Interfaces;
+using HarmonyLib;
 using UnityEngine;
+using HKSS.ShowHitbox;
+using HKSS.ShowHitbox.Behaviour;
 
 namespace HKSS.ShowHitbox;
 
@@ -14,12 +16,12 @@ namespace HKSS.ShowHitbox;
 [BepInDependency("io.github.ykysnk.BepinExUtils", "1.0.0")]
 [BepInProcess(Utils.GameName)]
 
-// Base options
+// Main options
 [ConfigBind<KeyCode>("ToggleKey", SectionOptions, KeyCode.F11, "The toggle key to toggle the hitbox display.")]
 [ConfigBind<bool>("ShowHitbox", SectionOptions, false, "Show the hitbox.")]
 [ConfigBind<bool>("MoreInfos", SectionOptions, true, "Show more info.")]
 
-// Slow-mo & Pause options
+// Time control options
 [ConfigBind<bool>("EnablePause", SectionTimeControl, true, "Enable pause functionality")]
 [ConfigBind<KeyCode>("PauseKey", SectionTimeControl, KeyCode.Pause, "The key to pause/resume the game")]
 [ConfigBind<bool>("EnableSlowMo", SectionTimeControl, true, "Enable slow motion functionality")]
@@ -30,7 +32,7 @@ namespace HKSS.ShowHitbox;
 [ConfigBind<bool>("FillHitboxes", SectionFill, true, "Draw filled hitboxes background")]
 [ConfigBind<float>("FillAlpha", SectionFill, 0.15f, "Hitbox fill opacity (0.0 - 1.0)")]
 
-// Fill filters options
+// Fill filters - which hitbox types to fill
 [ConfigBind<bool>("FillDanger", SectionFillFilters, true, "Fill Danger hitboxes (spikes, hazards)")]
 [ConfigBind<bool>("FillEnemy", SectionFillFilters, true, "Fill Enemy hitboxes (things with health)")]
 [ConfigBind<bool>("FillPlayerAttack", SectionFillFilters, true, "Fill Player attack hitboxes (nail slashes, spells)")]
@@ -47,7 +49,7 @@ namespace HKSS.ShowHitbox;
 // Outline options
 [ConfigBind<bool>("OutlineHitboxes", SectionOutline, true, "Draw hitbox outlines")]
 
-// Outline filters options
+// Outline filters - which hitbox types to outline
 [ConfigBind<bool>("OutlineDanger", SectionOutlineFilters, true, "Outline Danger hitboxes (spikes, hazards)")]
 [ConfigBind<bool>("OutlineEnemy", SectionOutlineFilters, true, "Outline Enemy hitboxes (things with health)")]
 [ConfigBind<bool>("OutlinePlayerAttack", SectionOutlineFilters, true, "Outline Player attack hitboxes (nail slashes, spells)")]
@@ -66,7 +68,7 @@ namespace HKSS.ShowHitbox;
 [ConfigBind<bool>("LabelOutline", SectionLabels, true, "Draw outline around label text for better visibility")]
 [ConfigBind<bool>("HidePlayerLabels", SectionLabels, true, "Hide labels containing 'Hero_Hornet' (player hitboxes)")]
 
-// Label filters options
+// Label filters - which hitbox types show labels
 [ConfigBind<bool>("LabelDanger", SectionLabelFilters, true, "Show labels for Danger hitboxes")]
 [ConfigBind<bool>("LabelEnemy", SectionLabelFilters, true, "Show labels for Enemy hitboxes")]
 [ConfigBind<bool>("LabelPlayerAttack", SectionLabelFilters, false, "Show labels for Player attack hitboxes")]
@@ -80,7 +82,6 @@ namespace HKSS.ShowHitbox;
 [ConfigBind<bool>("LabelShardRegion", SectionLabelFilters, false, "Show labels for Shard regions")]
 [ConfigBind<bool>("LabelCameraLock", SectionLabelFilters, false, "Show labels for Camera lock zones")]
 
-
 public partial class Main
 {
     private const string SectionOptions = "Options";
@@ -91,45 +92,44 @@ public partial class Main
     private const string SectionOutlineFilters = "Outline Filters";
     private const string SectionLabels = "Label Options";
     private const string SectionLabelFilters = "Label Filters";
-    private const string Version = "0.2.2";
+    private const string Version = "0.2.3";
 
     private static bool _isPaused = false;
     private static bool _isSlowMo = false;
     private static float _normalTimeScale = 1f;
 
-
     private void Update()
     {
         if (UnityInput.Current.GetKeyDown(Configs.ToggleKey))
-            Configs.ShowHitbox = !Configs.ShowHitbox; // toggle hitbox display
+        {
+            Configs.ShowHitbox = !Configs.ShowHitbox;
+        }
 
         if (Configs.EnablePause && UnityInput.Current.GetKeyDown(Configs.PauseKey))
-            TogglePause(); // toggle pause
+        {
+            TogglePause();
+        }
 
         if (Configs.EnableSlowMo && UnityInput.Current.GetKeyDown(Configs.SlowMoKey))
-            ToggleSlowMo(); // toggle slow motion
+        {
+            ToggleSlowMo();
+        }
 
-        // Enforce is required, because time scale is changed in the game (e.g., after killing an enemy)
         EnforceTimeScale();
     }
-
 
     private void LateUpdate()
     {
         EnforceTimeScale();
     }
 
-
     private static void EnforceTimeScale()
     {
-        float targetScale = _isPaused ? 0f
-            : _isSlowMo ? Mathf.Clamp(Configs.SlowMoFactor, 0.01f, 1f)
-            : _normalTimeScale;
+        float target = _isPaused ? 0f : _isSlowMo ? Mathf.Clamp(Configs.SlowMoFactor, 0.01f, 1f) : _normalTimeScale;
 
-        if (Mathf.Abs(Time.timeScale - targetScale) > 0.001f)
-            Time.timeScale = targetScale;
+        if (Time.timeScale != target)
+            Time.timeScale = target;
     }
-
 
     private static void TogglePause()
     {
@@ -139,7 +139,6 @@ public partial class Main
         Utils.Logger.Info(_isPaused ? "Game paused" : "Game resumed");
     }
 
-
     private static void ToggleSlowMo()
     {
         _isPaused = false;
@@ -148,32 +147,39 @@ public partial class Main
         Utils.Logger.Info(_isSlowMo ? $"Slow motion enabled ({Time.timeScale}x)" : "Slow motion disabled");
     }
 
-
     public void Init()
     {
-        // ah shit, here we go again
         Configs.OnShowHitboxValueChanged += OnToggleHitbox;
         DebugDrawColliderRuntime.IsShowing = Configs.ShowHitbox;
-    }
 
+        // Initialize the collider scanner
+        ColliderScanner.Initialize();
+    }
 
     private static void OnToggleHitbox(bool oldValue, bool newValue)
     {
-        Utils.Logger.Info($"Debug hitbox is now turned {(newValue ? "on" : "off")}!");
+        Utils.Logger.Info($"Debug hitbox is now turn {(newValue ? "on" : "off")}!");
         DebugDrawColliderRuntime.IsShowing = newValue;
+
+        // Clear scanner cache when toggling
+        if (newValue)
+        {
+            ColliderScanner.ClearCache();
+        }
     }
 
+    private void OnDestroy()
+    {
+        RestoreTimeScale();
+    }
 
-    private void OnDestroy() => RestoreTimeScale();
-
-
-    private void OnApplicationQuit() => RestoreTimeScale();
-
+    private void OnApplicationQuit()
+    {
+        RestoreTimeScale();
+    }
 
     private static void RestoreTimeScale()
     {
-        if (!_isPaused && !_isSlowMo) return;
-
         Time.timeScale = _normalTimeScale;
         _isPaused = _isSlowMo = false;
     }
