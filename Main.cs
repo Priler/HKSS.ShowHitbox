@@ -1,7 +1,7 @@
 ﻿﻿/*
  Original code: https://github.com/T2PeNBiX99wcoxKv3A4g/HKSS.ShowHitbox
- Original code author: Ykysnk
- Modified by: Abraham (aka Priler)
+ Original mod by: Ykysnk
+ Code re-written from scrach and modified by: Abraham (Priler)
  */
 
 using System;
