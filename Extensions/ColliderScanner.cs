@@ -1,15 +1,29 @@
-﻿using UnityEngine;
+using UnityEngine;
+using UnityEngine.SceneManagement;
 using System.Collections.Generic;
+using HutongGames.PlayMaker;
 
 namespace HKSS.ShowHitbox.Behaviour;
+
+// [ Hitbox Scanner ]--
+// Scans for damage objects that might not call AddOrUpdate:
+// 1. DamageHero components (normal enemy attacks)
+// 2. PlayMaker FSM "damages_hero" (some boss attacks use this instead)
 
 public class ColliderScanner : MonoBehaviour
 {
     private static ColliderScanner? _instance;
-    private float _scanInterval = 0.5f;
+    
+    // scan frequently to catch short-lived attacks
+    private float _scanInterval = 0.1f;
     private float _lastScanTime = 0f;
+    
+    // full rescan less often
+    private float _fullScanInterval = 2f;
+    private float _lastFullScanTime = 0f;
 
     private HashSet<int> _processedObjects = new HashSet<int>();
+    private bool _needsRescan = true;
 
     public static void Initialize()
     {
@@ -20,40 +34,105 @@ public class ColliderScanner : MonoBehaviour
         _instance = go.AddComponent<ColliderScanner>();
     }
 
+    private void OnEnable()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    private void OnDisable()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        _needsRescan = true;
+        _processedObjects.Clear();
+    }
+
     private void Update()
     {
         if (!DebugDrawColliderRuntime.IsShowing) return;
 
-        if (Time.unscaledTime - _lastScanTime < _scanInterval) return;
-        _lastScanTime = Time.unscaledTime;
+        float time = Time.unscaledTime;
 
-        ScanForMissingHitboxes();
+        // full scan periodically or when requested
+        if (_needsRescan || time - _lastFullScanTime >= _fullScanInterval)
+        {
+            _lastFullScanTime = time;
+            _lastScanTime = time;
+            _needsRescan = false;
+            FullScan();
+        }
+        // quick scan for FSM-based attacks more frequently
+        else if (time - _lastScanTime >= _scanInterval)
+        {
+            _lastScanTime = time;
+            ScanForFsmDamageObjects();
+        }
     }
 
-    private void ScanForMissingHitboxes()
+    private void FullScan()
     {
-        // Find all HealthManager components (enemies/damageable objects)
+        // scan for HealthManager objects
         var healthManagers = FindObjectsOfType<HealthManager>();
         foreach (var hm in healthManagers)
         {
-            TryAddDebugCollider(hm.gameObject, DebugDrawColliderRuntime.ColorType.Enemy);
+            if (hm != null)
+                TryAddDebugCollider(hm.gameObject, DebugDrawColliderRuntime.ColorType.Enemy);
         }
 
-        // Find all DamageHero components (things that damage the player)
+        // scan for DamageHero objects
         var damageHeroes = FindObjectsOfType<DamageHero>();
         foreach (var dh in damageHeroes)
         {
-            if (dh.damageDealt > 0)
-            {
+            if (dh != null && dh.damageDealt > 0)
                 TryAddDebugCollider(dh.gameObject, DebugDrawColliderRuntime.ColorType.Danger);
-            }
         }
 
-        // Find all DamageEnemies components (player attacks)
+        // scan for DamageEnemies objects
         var damageEnemies = FindObjectsOfType<DamageEnemies>();
         foreach (var de in damageEnemies)
         {
-            TryAddDebugCollider(de.gameObject, DebugDrawColliderRuntime.ColorType.Enemy);
+            if (de != null)
+                TryAddDebugCollider(de.gameObject, DebugDrawColliderRuntime.ColorType.Enemy);
+        }
+
+        // scan for FSM-based damage objects
+        ScanForFsmDamageObjects();
+
+        // scan player if highlight enabled
+        if (Configs.HighlightPlayer)
+        {
+            var heroController = FindObjectOfType<HeroController>();
+            if (heroController != null)
+                ScanGameObjectAndChildren(heroController.gameObject, DebugDrawColliderRuntime.ColorType.Enemy);
+        }
+    }
+
+    private void ScanForFsmDamageObjects()
+    {
+        // find all PlayMakerFSM components and check for "damages_hero" FSM
+        var allFsms = FindObjectsOfType<PlayMakerFSM>();
+        foreach (var fsm in allFsms)
+        {
+            if (fsm == null || !fsm.isActiveAndEnabled) continue;
+            
+            // check if this FSM is named "damages_hero"
+            if (fsm.FsmName == "damages_hero")
+            {
+                TryAddDebugCollider(fsm.gameObject, DebugDrawColliderRuntime.ColorType.Danger);
+            }
+        }
+    }
+
+    private void ScanGameObjectAndChildren(GameObject root, DebugDrawColliderRuntime.ColorType type)
+    {
+        TryAddDebugCollider(root, type);
+
+        foreach (Transform child in root.transform)
+        {
+            ScanGameObjectAndChildren(child.gameObject, type);
         }
     }
 
@@ -61,33 +140,29 @@ public class ColliderScanner : MonoBehaviour
     {
         int instanceId = go.GetInstanceID();
 
-        // Skip if already processed
         if (_processedObjects.Contains(instanceId)) return;
 
-        // Skip if already has DebugDrawColliderRuntime
         if (go.GetComponent<DebugDrawColliderRuntime>() != null)
         {
             _processedObjects.Add(instanceId);
             return;
         }
 
-        // Check if the object has any 2D colliders
         bool hasCollider = go.GetComponent<Collider2D>() != null;
 
         if (!hasCollider) return;
 
-        // Add DebugDrawColliderRuntime using the game's method
         DebugDrawColliderRuntime.AddOrUpdate(go, type, true);
 
         _processedObjects.Add(instanceId);
     }
 
-    // Clear processed objects when scene changes or hitbox display is toggled
     public static void ClearCache()
     {
         if (_instance != null)
         {
             _instance._processedObjects.Clear();
+            _instance._needsRescan = true;
         }
     }
 

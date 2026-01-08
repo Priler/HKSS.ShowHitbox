@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 using Color = UnityEngine.Color;
 
 namespace HKSS.ShowHitbox.Behaviour;
@@ -13,25 +14,31 @@ public class MoreInfosController : MonoBehaviour
     private GUIStyle? _outlineStyle;
 
     // static tracking of label positions per frame to avoid overlap
-    // @todo: doesn't seem to work whatsoever
-    private static readonly List<LabelInfo> _labelsThisFrame = [];
+    private static readonly Dictionary<int, LabelInfo> _labelsThisFrame = new();
     private static int _lastFrameCount = -1;
 
+    // cached label info for this instance
+    private Vector2 _cachedPosition;
+    private Vector2 _cachedSize;
+    private string? _cachedText;
+    private bool _hasCalculatedThisFrame;
+    private int _lastCalculatedFrame = -1;
 
     private struct LabelInfo
     {
         public Vector2 Position;
         public Vector2 Size;
-        public int InstanceId;
     }
 
 
     private void OnGUI()
     {
+        // only process during Repaint to avoid duplicate calculations
+        if (Event.current.type != EventType.Repaint) return;
+
         if (!Configs.ShowHitbox || !Configs.MoreInfos) return;
         if (!DebugDrawColliderRuntime) return;
 
-        // check if this type should display labels
         if (!ShouldShowLabel())
             return;
 
@@ -40,7 +47,6 @@ public class MoreInfosController : MonoBehaviour
 
         var objScreenPos = cam.WorldToScreenPoint(transform.position);
 
-        // don't render if behind camera
         if (objScreenPos.z < 0) return;
 
         // clear label tracking on new frame
@@ -50,74 +56,73 @@ public class MoreInfosController : MonoBehaviour
             _lastFrameCount = Time.frameCount;
         }
 
-        // initialize styles (if needed
         InitStyles();
 
-        var labelText = gameObject.FullName();
+        int instanceId = gameObject.GetInstanceID();
 
-        // skip if label text is null or empty
-        if (string.IsNullOrEmpty(labelText))
+        // calculate position only once per frame
+        if (_lastCalculatedFrame != Time.frameCount)
+        {
+            _cachedText = gameObject.FullName();
+            _lastCalculatedFrame = Time.frameCount;
+            _hasCalculatedThisFrame = false;
+        }
+
+        if (string.IsNullOrEmpty(_cachedText))
             return;
 
-        // hide player labels if option is enabled and label matches
-        if (Configs.HidePlayerLabels && IsPlayerLabel(labelText!))
+        if (Configs.HidePlayerLabels && IsPlayerLabel(_cachedText!))
             return;
 
-        // calculate text size for centering
-        _labelStyle!.fontSize = Configs.LabelFontSize;
-        var content = new GUIContent(labelText);
-        var textSize = _labelStyle.CalcSize(content);
+        // calculate or use cached position
+        if (!_hasCalculatedThisFrame)
+        {
+            _labelStyle!.fontSize = Configs.LabelFontSize;
+            var content = new GUIContent(_cachedText);
+            _cachedSize = _labelStyle.CalcSize(content);
 
-        // base position (centered on object)
-        float baseX = objScreenPos.x - textSize.x / 2;
-        float baseY = Screen.height - objScreenPos.y - textSize.y / 2;
+            float baseX = objScreenPos.x - _cachedSize.x / 2;
+            float baseY = Screen.height - objScreenPos.y - _cachedSize.y / 2;
 
-        // check for overlaps and offset if needed (to avoid label stacking on top of each other)
-        Vector2 finalPosition = ResolveOverlap(
-            new Vector2(baseX, baseY),
-            textSize,
-            gameObject.GetInstanceID()
-        );
+            _cachedPosition = ResolveOverlap(new Vector2(baseX, baseY), _cachedSize, instanceId);
+
+            // register position for other labels to check against
+            _labelsThisFrame[instanceId] = new LabelInfo
+            {
+                Position = _cachedPosition,
+                Size = _cachedSize
+            };
+
+            _hasCalculatedThisFrame = true;
+        }
 
         var labelRect = new Rect(
-            finalPosition.x,
-            finalPosition.y,
-            textSize.x + 10,
-            textSize.y + 4
+            _cachedPosition.x,
+            _cachedPosition.y,
+            _cachedSize.x + 10,
+            _cachedSize.y + 4
         );
 
-        // register this label position
-        _labelsThisFrame.Add(new LabelInfo
-        {
-            Position = finalPosition,
-            Size = textSize,
-            InstanceId = gameObject.GetInstanceID()
-        });
-
-        // get color using shared utility (same as fill color, but full alpha)
         Color labelColor = HitboxColors.GetHitboxColor(gameObject, DebugDrawColliderRuntime.type, 1f);
 
-        // draw outline for better visibility
         if (Configs.LabelOutline)
         {
             _outlineStyle!.fontSize = Configs.LabelFontSize;
             GUI.color = Color.black;
 
-            // draw outline in 8 directions
             for (int x = -1; x <= 1; x++)
             {
                 for (int y = -1; y <= 1; y++)
                 {
                     if (x == 0 && y == 0) continue;
                     var outlineRect = new Rect(labelRect.x + x, labelRect.y + y, labelRect.width, labelRect.height);
-                    GUI.Label(outlineRect, labelText, _outlineStyle);
+                    GUI.Label(outlineRect, _cachedText, _outlineStyle);
                 }
             }
         }
 
-        // draw main label
         GUI.color = labelColor;
-        GUI.Label(labelRect, labelText, _labelStyle);
+        GUI.Label(labelRect, _cachedText, _labelStyle);
     }
 
 
@@ -137,11 +142,12 @@ public class MoreInfosController : MonoBehaviour
         {
             bool hasOverlap = false;
 
-            foreach (var label in _labelsThisFrame)
+            foreach (var kvp in _labelsThisFrame)
             {
-                if (label.InstanceId == instanceId)
+                if (kvp.Key == instanceId)
                     continue;
 
+                var label = kvp.Value;
                 if (IsOverlapping(position, size, label.Position, label.Size))
                 {
                     position.y += VerticalOffset + label.Size.y;

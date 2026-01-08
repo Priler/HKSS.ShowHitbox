@@ -1,10 +1,4 @@
-﻿﻿/*
- Original code: https://github.com/T2PeNBiX99wcoxKv3A4g/HKSS.ShowHitbox
- Original mod by: Ykysnk
- Code re-written from scrach and modified by: Abraham (Priler)
- */
-
-using System;
+﻿using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using BepInEx;
@@ -37,6 +31,8 @@ namespace HKSS.ShowHitbox;
 // Fill options
 [ConfigBind<bool>("FillHitboxes", SectionFill, true, "Draw filled hitboxes background")]
 [ConfigBind<float>("FillAlpha", SectionFill, 0.15f, "Hitbox fill opacity (0.0 - 1.0)")]
+[ConfigBind<bool>("ShowDisabledColliders", SectionFill, true, "Show colliders even when disabled (dimmed)")]
+[ConfigBind<float>("DisabledAlpha", SectionFill, 0.05f, "Opacity for disabled colliders (0.0 - 1.0)")]
 
 // Fill filters - which hitbox types to fill
 [ConfigBind<bool>("FillDanger", SectionFillFilters, true, "Fill Danger hitboxes (spikes, hazards)")]
@@ -73,6 +69,7 @@ namespace HKSS.ShowHitbox;
 [ConfigBind<int>("LabelFontSize", SectionLabels, 14, "Font size for hitbox labels (8-32)")]
 [ConfigBind<bool>("LabelOutline", SectionLabels, true, "Draw outline around label text for better visibility")]
 [ConfigBind<bool>("HidePlayerLabels", SectionLabels, true, "Hide labels containing 'Hero_Hornet' (player hitboxes)")]
+[ConfigBind<bool>("HighlightPlayer", SectionLabels, false, "Highlight player hitbox in red like enemies")]
 
 // Label filters - which hitbox types show labels
 [ConfigBind<bool>("LabelDanger", SectionLabelFilters, true, "Show labels for Danger hitboxes")]

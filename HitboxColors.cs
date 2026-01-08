@@ -9,40 +9,51 @@ public static class HitboxColors
     // Color variation offsets for overlapping same-category hitboxes
     private static readonly Color[] ColorVariations = new Color[]
     {
-        new Color(0f, 0f, 0f, 0f),         // No change (first)
-        new Color(0.2f, -0.1f, 0.3f, 0f),  // Shift towards purple/magenta
-        new Color(-0.2f, 0.2f, -0.1f, 0f), // Shift towards green
-        new Color(0.3f, 0.1f, -0.2f, 0f),  // Shift towards orange/yellow
-        new Color(-0.1f, -0.2f, 0.3f, 0f), // Shift towards blue
-        new Color(0.1f, 0.3f, 0.1f, 0f),   // Shift towards lime
+        new Color(0f, 0f, 0f, 0f),
+        new Color(0.35f, -0.15f, 0.4f, 0f),
+        new Color(-0.3f, 0.35f, -0.15f, 0f),
+        new Color(0.4f, 0.2f, -0.35f, 0f),
+        new Color(-0.2f, -0.3f, 0.4f, 0f),
+        new Color(0.2f, 0.4f, 0.2f, 0f),
     };
 
     // Cache colors per instance ID per frame
     private static readonly Dictionary<int, Color> _colorCache = new Dictionary<int, Color>();
 
-    // Track hitboxes for variation calculation
-    private static readonly Dictionary<int, List<HitboxInfo>> _hitboxesThisFrame = new Dictionary<int, List<HitboxInfo>>();
-    private static int _lastFrameCount = -1;
+    // Track unique hitbox names per category for variation
+    private static readonly Dictionary<int, Dictionary<string, int>> _nameVariationIndex = new Dictionary<int, Dictionary<string, int>>();
 
-    private struct HitboxInfo
-    {
-        public Vector3 WorldPosition;
-        public int InstanceId;
-    }
+    private static int _lastFrameCount = -1;
 
     private static void EnsureFrameCleared()
     {
         if (Time.frameCount != _lastFrameCount)
         {
-            _hitboxesThisFrame.Clear();
             _colorCache.Clear();
+            _nameVariationIndex.Clear();
             _lastFrameCount = Time.frameCount;
         }
     }
 
+    public static bool IsPlayer(GameObject go)
+    {
+        // Check if this is the player by looking for HeroController or name
+        var heroController = go.GetComponentInParent<HeroController>();
+        if (heroController != null) return true;
+
+        // Fallback: check name
+        string fullName = go.name;
+        Transform parent = go.transform.parent;
+        while (parent != null)
+        {
+            fullName = parent.name + "/" + fullName;
+            parent = parent.parent;
+        }
+        return fullName.Contains("Hero_Hornet");
+    }
+
     public static int GetColorCategory(GameObject go, DebugDrawColliderRuntime.ColorType type)
     {
-        // Check for special categories first
         var damageEnemies = go.GetComponent<DamageEnemies>();
         if (damageEnemies != null)
             return 100; // PlayerAttack category
@@ -55,12 +66,15 @@ public static class HitboxColors
         if (damageHero != null)
             return 102; // EnemyAttack category
 
-        // Use ColorType as category
         return (int)type;
     }
 
     public static Color GetBaseColor(GameObject go, DebugDrawColliderRuntime.ColorType type)
     {
+        // Check if player should be highlighted
+        if (Configs.HighlightPlayer && IsPlayer(go))
+            return Color.red;
+
         // Check for special categories
         var damageEnemies = go.GetComponent<DamageEnemies>();
         if (damageEnemies != null)
@@ -69,7 +83,6 @@ public static class HitboxColors
         var healthManager = go.GetComponent<HealthManager>();
         if (healthManager != null)
         {
-            // Check if both Danger and Enemy are selected - use red for actual enemies
             if (Configs.FillDanger && Configs.FillEnemy)
                 return Color.red;
             return new Color(1f, 0.7f, 0f); // Orange
@@ -111,52 +124,54 @@ public static class HitboxColors
         );
     }
 
+    private static string GetHitboxIdentifier(GameObject go)
+    {
+        string fullName = go.name;
+
+        if (go.transform.parent != null)
+        {
+            fullName = go.transform.parent.name + "/" + go.name;
+        }
+
+        return fullName;
+    }
+
     public static Color GetHitboxColor(GameObject go, DebugDrawColliderRuntime.ColorType type, float alpha)
     {
         EnsureFrameCleared();
 
         int instanceId = go.GetInstanceID();
 
-        // Check cache first - return same color if already calculated this frame
         if (_colorCache.TryGetValue(instanceId, out Color cachedColor))
         {
             cachedColor.a = alpha;
             return cachedColor;
         }
 
-        // Calculate color
         int colorCategory = GetColorCategory(go, type);
-        Vector3 worldPos = go.transform.position;
+        string hitboxId = GetHitboxIdentifier(go);
 
-        // Count nearby same-category hitboxes
-        int nearbyCount = 0;
-        if (_hitboxesThisFrame.TryGetValue(colorCategory, out var categoryList))
+        if (!_nameVariationIndex.ContainsKey(colorCategory))
         {
-            foreach (var info in categoryList)
-            {
-                if (Vector3.Distance(worldPos, info.WorldPosition) < 3f)
-                {
-                    nearbyCount++;
-                }
-            }
+            _nameVariationIndex[colorCategory] = new Dictionary<string, int>();
         }
 
-        // Register this hitbox
-        if (!_hitboxesThisFrame.ContainsKey(colorCategory))
-        {
-            _hitboxesThisFrame[colorCategory] = new List<HitboxInfo>();
-        }
-        _hitboxesThisFrame[colorCategory].Add(new HitboxInfo
-        {
-            WorldPosition = worldPos,
-            InstanceId = instanceId
-        });
+        var categoryNames = _nameVariationIndex[colorCategory];
 
-        // Calculate final color
+        int variationIndex;
+        if (categoryNames.TryGetValue(hitboxId, out int existingIndex))
+        {
+            variationIndex = existingIndex;
+        }
+        else
+        {
+            variationIndex = categoryNames.Count;
+            categoryNames[hitboxId] = variationIndex;
+        }
+
         Color baseColor = GetBaseColor(go, type);
-        Color finalColor = ApplyVariation(baseColor, nearbyCount);
+        Color finalColor = ApplyVariation(baseColor, variationIndex);
 
-        // Cache it (without alpha, alpha is applied per-call)
         _colorCache[instanceId] = finalColor;
 
         finalColor.a = alpha;

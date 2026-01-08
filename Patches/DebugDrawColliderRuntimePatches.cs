@@ -39,6 +39,20 @@ internal class DebugDrawColliderRuntimePatches
         typeof(DebugDrawColliderRuntime).GetField(
             "damageEnemies", BindingFlags.Instance | BindingFlags.NonPublic);
 
+    #region AddOrUpdate patch - force registration of all hitboxes
+
+    [HarmonyPatch("AddOrUpdate")]
+    [HarmonyPrefix]
+    private static bool AddOrUpdatePrefix(GameObject gameObject, ColorType type, ref bool forceAdd)
+    {
+        // always force add so hitboxes are registered even when display is off
+        // this ensures boss attacks that spawn briefly are captured
+        forceAdd = true;
+        return true;
+    }
+
+    #endregion
+
     #region Init patch - attach MoreInfosController
 
     [HarmonyPatch("Init")]
@@ -207,7 +221,8 @@ internal class DebugDrawColliderRuntimePatches
 
         foreach (var capsule in capsules)
         {
-            if (!capsule.enabled) continue;
+            Color drawColor = GetColliderColor(fillColor, capsule.enabled);
+            if (drawColor.a <= 0) continue;
 
             Vector2 size = capsule.size;
             Vector2 offset = capsule.offset;
@@ -234,7 +249,7 @@ internal class DebugDrawColliderRuntimePatches
             if (height > 0)
             {
                 GL.Begin(GL_TRIANGLES);
-                GL.Color(fillColor);
+                GL.Color(drawColor);
 
                 Vector3 halfHeight = direction == CapsuleDirection2D.Vertical
                     ? new Vector3(0, height / 2f, 0)
@@ -277,7 +292,7 @@ internal class DebugDrawColliderRuntimePatches
 
             // Cap 1 (top/right semicircle)
             GL.Begin(GL_TRIANGLES);
-            GL.Color(fillColor);
+            GL.Color(drawColor);
 
             float startAngle1 = direction == CapsuleDirection2D.Vertical ? 0 : -Mathf.PI / 2f;
             for (int i = 0; i < segments; i++)
@@ -297,7 +312,7 @@ internal class DebugDrawColliderRuntimePatches
 
             // Cap 2 (bottom/left semicircle)
             GL.Begin(GL_TRIANGLES);
-            GL.Color(fillColor);
+            GL.Color(drawColor);
 
             float startAngle2 = direction == CapsuleDirection2D.Vertical ? Mathf.PI : Mathf.PI / 2f;
             for (int i = 0; i < segments; i++)
@@ -326,7 +341,8 @@ internal class DebugDrawColliderRuntimePatches
 
         foreach (var capsule in capsules)
         {
-            if (!capsule.enabled) continue;
+            Color drawColor = GetColliderColor(color, capsule.enabled);
+            if (drawColor.a <= 0) continue;
 
             Vector2 size = capsule.size;
             Vector2 offset = capsule.offset;
@@ -347,7 +363,7 @@ internal class DebugDrawColliderRuntimePatches
             GL.PushMatrix();
             GL.MultMatrix(tr.localToWorldMatrix);
             GL.Begin(GL_LINES);
-            GL.Color(color);
+            GL.Color(drawColor);
 
             int segments = 16;
 
@@ -414,6 +430,18 @@ internal class DebugDrawColliderRuntimePatches
 
     #region Outline Drawing Methods
 
+    private static Color GetColliderColor(Color baseColor, bool isEnabled)
+    {
+        if (isEnabled) return baseColor;
+        
+        if (!Configs.ShowDisabledColliders) return Color.clear;
+        
+        // dimmed color for disabled colliders
+        Color dimmed = baseColor;
+        dimmed.a = Configs.DisabledAlpha;
+        return dimmed;
+    }
+
     private static void DrawBoxOutlines(DebugDrawColliderRuntime inst, Transform tr, Color color)
     {
         var boxes = inst.GetComponents<BoxCollider2D>();
@@ -422,7 +450,8 @@ internal class DebugDrawColliderRuntimePatches
 
         foreach (var box in boxes)
         {
-            if (!box.enabled) continue;
+            Color drawColor = GetColliderColor(color, box.enabled);
+            if (drawColor.a <= 0) continue;
 
             Vector2 size = box.size;
             Vector2 offset = box.offset;
@@ -439,7 +468,7 @@ internal class DebugDrawColliderRuntimePatches
             Vector3 v3 = tr.TransformPoint(p3);
 
             GL.Begin(GL_LINES);
-            GL.Color(color);
+            GL.Color(drawColor);
 
             GL.Vertex(v0); GL.Vertex(v1);
             GL.Vertex(v1); GL.Vertex(v2);
@@ -458,7 +487,8 @@ internal class DebugDrawColliderRuntimePatches
 
         foreach (var poly in polys)
         {
-            if (!poly.enabled) continue;
+            Color drawColor = GetColliderColor(color, poly.enabled);
+            if (drawColor.a <= 0) continue;
 
             for (int pathIndex = 0; pathIndex < poly.pathCount; pathIndex++)
             {
@@ -466,7 +496,7 @@ internal class DebugDrawColliderRuntimePatches
                 if (pts == null || pts.Length < 2) continue;
 
                 GL.Begin(GL_LINES);
-                GL.Color(color);
+                GL.Color(drawColor);
 
                 for (int i = 0; i < pts.Length; i++)
                 {
@@ -490,7 +520,8 @@ internal class DebugDrawColliderRuntimePatches
 
         foreach (var circle in circles)
         {
-            if (!circle.enabled) continue;
+            Color drawColor = GetColliderColor(color, circle.enabled);
+            if (drawColor.a <= 0) continue;
 
             Vector3 lossyScale = tr.lossyScale;
             int points = Mathf.RoundToInt(
@@ -501,7 +532,7 @@ internal class DebugDrawColliderRuntimePatches
             GL.PushMatrix();
             GL.MultMatrix(tr.localToWorldMatrix);
             GL.Begin(GL_LINES);
-            GL.Color(color);
+            GL.Color(drawColor);
 
             Vector3 center = circle.offset.ToVector3(0f);
 
@@ -537,13 +568,14 @@ internal class DebugDrawColliderRuntimePatches
 
         foreach (var edge in edges)
         {
-            if (!edge.enabled) continue;
+            Color drawColor = GetColliderColor(color, edge.enabled);
+            if (drawColor.a <= 0) continue;
 
             var pts = edge.points;
             if (pts == null || pts.Length < 2) continue;
 
             GL.Begin(GL_LINES);
-            GL.Color(color);
+            GL.Color(drawColor);
 
             for (int i = 0; i < pts.Length - 1; i++)
             {
@@ -570,7 +602,8 @@ internal class DebugDrawColliderRuntimePatches
 
         foreach (var box in boxes)
         {
-            if (!box.enabled) continue;
+            Color drawColor = GetColliderColor(fillColor, box.enabled);
+            if (drawColor.a <= 0) continue;
 
             Vector2 size = box.size;
             Vector2 offset = box.offset;
@@ -587,7 +620,7 @@ internal class DebugDrawColliderRuntimePatches
             Vector3 v3 = tr.TransformPoint(p3);
 
             GL.Begin(GL_TRIANGLES);
-            GL.Color(fillColor);
+            GL.Color(drawColor);
 
             GL.Vertex(v0);
             GL.Vertex(v1);
@@ -609,7 +642,8 @@ internal class DebugDrawColliderRuntimePatches
 
         foreach (var poly in polys)
         {
-            if (!poly.enabled) continue;
+            Color drawColor = GetColliderColor(fillColor, poly.enabled);
+            if (drawColor.a <= 0) continue;
 
             for (int pathIndex = 0; pathIndex < poly.pathCount; pathIndex++)
             {
@@ -620,7 +654,7 @@ internal class DebugDrawColliderRuntimePatches
                 if (triangles == null || triangles.Count == 0) continue;
 
                 GL.Begin(GL_TRIANGLES);
-                GL.Color(fillColor);
+                GL.Color(drawColor);
 
                 for (int i = 0; i < triangles.Count; i += 3)
                 {
@@ -646,7 +680,8 @@ internal class DebugDrawColliderRuntimePatches
 
         foreach (var circle in circles)
         {
-            if (!circle.enabled) continue;
+            Color drawColor = GetColliderColor(fillColor, circle.enabled);
+            if (drawColor.a <= 0) continue;
 
             Vector3 lossyScale = tr.lossyScale;
             int points = Mathf.RoundToInt(
@@ -658,7 +693,7 @@ internal class DebugDrawColliderRuntimePatches
             GL.MultMatrix(tr.localToWorldMatrix);
 
             GL.Begin(GL_TRIANGLES);
-            GL.Color(fillColor);
+            GL.Color(drawColor);
 
             Vector3 center = circle.offset.ToVector3(0f);
 
