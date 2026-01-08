@@ -39,6 +39,14 @@ public class MoreInfosController : MonoBehaviour
         if (!Configs.ShowHitbox || !Configs.MoreInfos) return;
         if (!DebugDrawColliderRuntime) return;
 
+        // skip enemy body labels
+        if (Configs.HideEnemyBody && gameObject.GetComponent<HealthManager>() != null)
+            return;
+        
+        // skip detection zone labels
+        if (Configs.HideEnemyZones && IsDetectionZone(gameObject.name))
+            return;
+
         if (!ShouldShowLabel())
             return;
 
@@ -63,7 +71,7 @@ public class MoreInfosController : MonoBehaviour
         // calculate position only once per frame
         if (_lastCalculatedFrame != Time.frameCount)
         {
-            _cachedText = gameObject.FullName();
+            _cachedText = Configs.ShortLabels ? gameObject.name : gameObject.FullName();
             _lastCalculatedFrame = Time.frameCount;
             _hasCalculatedThisFrame = false;
         }
@@ -71,7 +79,7 @@ public class MoreInfosController : MonoBehaviour
         if (string.IsNullOrEmpty(_cachedText))
             return;
 
-        if (Configs.HidePlayerLabels && IsPlayerLabel(_cachedText!))
+        if (Configs.HidePlayerLabels && IsPlayerLabel())
             return;
 
         // calculate or use cached position
@@ -103,7 +111,10 @@ public class MoreInfosController : MonoBehaviour
             _cachedSize.y + 4
         );
 
-        Color labelColor = HitboxColors.GetHitboxColor(gameObject, DebugDrawColliderRuntime.type, 1f);
+        // use detection zone color if applicable
+        Color labelColor = IsDetectionZone(gameObject.name)
+            ? HitboxColors.DetectionZoneColor
+            : HitboxColors.GetHitboxColor(gameObject, DebugDrawColliderRuntime.type, 1f);
 
         if (Configs.LabelOutline)
         {
@@ -126,9 +137,10 @@ public class MoreInfosController : MonoBehaviour
     }
 
 
-    private bool IsPlayerLabel(string labelText)
+    private bool IsPlayerLabel()
     {
-        return labelText.Contains("Hero_Hornet");
+        // check the gameObject hierarchy for player
+        return HitboxColors.IsPlayer(gameObject);
     }
 
 
@@ -236,5 +248,14 @@ public class MoreInfosController : MonoBehaviour
             DebugDrawColliderRuntime.ColorType.CameraLock => Configs.LabelCameraLock,
             _ => false
         };
+    }
+
+    private static bool IsDetectionZone(string name)
+    {
+        string nameLower = name.ToLowerInvariant();
+        return nameLower.Contains("range") || 
+               nameLower.Contains("alert") || 
+               nameLower.Contains("sense") || 
+               nameLower.Contains("detect");
     }
 }

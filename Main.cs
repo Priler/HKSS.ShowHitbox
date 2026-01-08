@@ -33,6 +33,8 @@ namespace HKSS.ShowHitbox;
 [ConfigBind<float>("FillAlpha", SectionFill, 0.15f, "Hitbox fill opacity (0.0 - 1.0)")]
 [ConfigBind<bool>("ShowDisabledColliders", SectionFill, true, "Show colliders even when disabled (dimmed)")]
 [ConfigBind<float>("DisabledAlpha", SectionFill, 0.05f, "Opacity for disabled colliders (0.0 - 1.0)")]
+[ConfigBind<bool>("HideEnemyBody", SectionFill, true, "Hide large enemy/boss body colliders (HealthManager objects)")]
+[ConfigBind<bool>("HideEnemyZones", SectionFill, false, "Hide enemy detection zones (range, alert, sense triggers)")]
 
 // Fill filters - which hitbox types to fill
 [ConfigBind<bool>("FillDanger", SectionFillFilters, true, "Fill Danger hitboxes (spikes, hazards)")]
@@ -70,6 +72,7 @@ namespace HKSS.ShowHitbox;
 [ConfigBind<bool>("LabelOutline", SectionLabels, true, "Draw outline around label text for better visibility")]
 [ConfigBind<bool>("HidePlayerLabels", SectionLabels, true, "Hide labels containing 'Hero_Hornet' (player hitboxes)")]
 [ConfigBind<bool>("HighlightPlayer", SectionLabels, false, "Highlight player hitbox in red like enemies")]
+[ConfigBind<bool>("ShortLabels", SectionLabels, true, "Show short labels (e.g. 'Combo Slash 1' instead of full path)")]
 
 // Label filters - which hitbox types show labels
 [ConfigBind<bool>("LabelDanger", SectionLabelFilters, true, "Show labels for Danger hitboxes")]
@@ -85,6 +88,9 @@ namespace HKSS.ShowHitbox;
 [ConfigBind<bool>("LabelShardRegion", SectionLabelFilters, false, "Show labels for Shard regions")]
 [ConfigBind<bool>("LabelCameraLock", SectionLabelFilters, false, "Show labels for Camera lock zones")]
 
+// Debug options
+[ConfigBind<bool>("DebugLogging", SectionDebug, false, "Log info about scanned colliders to help identify missing hitboxes")]
+
 public partial class Main
 {
     private const string SectionOptions = "Options";
@@ -95,6 +101,7 @@ public partial class Main
     private const string SectionOutlineFilters = "Outline Filters";
     private const string SectionLabels = "Label Options";
     private const string SectionLabelFilters = "Label Filters";
+    private const string SectionDebug = "Debug";
     private const string Version = "0.2.3";
 
     private static bool _isPaused = false;

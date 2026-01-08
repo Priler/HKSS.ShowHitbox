@@ -17,6 +17,9 @@ public static class HitboxColors
         new Color(0.2f, 0.4f, 0.2f, 0f),
     };
 
+    // detection zones (range, alert, sense) - purple/violet color
+    public static readonly Color DetectionZoneColor = new Color(0.6f, 0.3f, 0.9f, 1f);
+
     // Cache colors per instance ID per frame
     private static readonly Dictionary<int, Color> _colorCache = new Dictionary<int, Color>();
 

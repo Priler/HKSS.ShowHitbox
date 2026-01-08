@@ -89,17 +89,36 @@ internal class DebugDrawColliderRuntimePatches
         if (source != CameraRenderHooks.CameraSource.MainCamera)
             return false;
 
-        var damageEnemies = DamageEnemiesField?.GetValue(__instance) as DamageEnemies;
-        var damageHero = DamageHeroField?.GetValue(__instance) as DamageHero;
-
-        if (damageEnemies == null && damageHero != null && damageHero.damageDealt <= 0)
-            return false;
-
         ColorType type = GetType(__instance);
         GameObject go = __instance.gameObject;
 
-        bool shouldFill = FillEnabled && ShouldFill(type, go);
-        bool shouldOutline = OutlineEnabled && ShouldOutline(type, go);
+        // skip enemy body colliders (objects with HealthManager)
+        if (Configs.HideEnemyBody)
+        {
+            var healthManager = go.GetComponent<HealthManager>();
+            if (healthManager != null)
+                return false;
+        }
+
+        // check if this is a detection zone
+        bool isDetectionZone = IsDetectionZone(go.name);
+        
+        // skip detection zones if configured to hide them
+        if (Configs.HideEnemyZones && isDetectionZone)
+            return false;
+
+        // detection zones use their own color and always render (if not hidden)
+        bool shouldFill, shouldOutline;
+        if (isDetectionZone)
+        {
+            shouldFill = FillEnabled;
+            shouldOutline = OutlineEnabled;
+        }
+        else
+        {
+            shouldFill = FillEnabled && ShouldFill(type, go);
+            shouldOutline = OutlineEnabled && ShouldOutline(type, go);
+        }
 
         if (!shouldFill && !shouldOutline)
             return false;
@@ -110,7 +129,10 @@ internal class DebugDrawColliderRuntimePatches
 
         var tr = __instance.transform;
 
-        Color hitboxColor = HitboxColors.GetHitboxColor(go, type, 1f);
+        // use detection zone color if applicable
+        Color hitboxColor = isDetectionZone 
+            ? HitboxColors.DetectionZoneColor
+            : HitboxColors.GetHitboxColor(go, type, 1f);
         Color fillColor = hitboxColor;
         fillColor.a = Alpha;
 
@@ -875,6 +897,15 @@ internal class DebugDrawColliderRuntimePatches
             return ColorType.None;
 
         return (ColorType)TypeField.GetValue(inst);
+    }
+
+    private static bool IsDetectionZone(string name)
+    {
+        string nameLower = name.ToLowerInvariant();
+        return nameLower.Contains("range") || 
+               nameLower.Contains("alert") || 
+               nameLower.Contains("sense") || 
+               nameLower.Contains("detect");
     }
 
     #endregion
