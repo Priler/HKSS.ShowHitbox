@@ -31,10 +31,13 @@ namespace HKSS.ShowHitbox;
 // Fill options
 [ConfigBind<bool>("FillHitboxes", SectionFill, true, "Draw filled hitboxes background")]
 [ConfigBind<float>("FillAlpha", SectionFill, 0.15f, "Hitbox fill opacity (0.0 - 1.0)")]
-[ConfigBind<bool>("ShowDisabledColliders", SectionFill, true, "Show colliders even when disabled (dimmed)")]
+[ConfigBind<bool>("ShowDisabledColliders", SectionFill, false, "Show ALL colliders even when disabled (dimmed)")]
+[ConfigBind<bool>("ShowDisabledAttacksEnemy", SectionFill, true, "Show disabled enemy attack hitboxes (dimmed)")]
+[ConfigBind<bool>("ShowDisabledAttacksPlayer", SectionFill, false, "Show disabled player attack hitboxes (dimmed)")]
 [ConfigBind<float>("DisabledAlpha", SectionFill, 0.05f, "Opacity for disabled colliders (0.0 - 1.0)")]
 [ConfigBind<bool>("HideEnemyBody", SectionFill, true, "Hide large enemy/boss body colliders (HealthManager objects)")]
 [ConfigBind<bool>("HideEnemyZones", SectionFill, false, "Hide enemy detection zones (range, alert, sense triggers)")]
+[ConfigBind<bool>("ShowEnvironmental", SectionFill, false, "Show environmental object hitboxes (grass, coral, wind forces)")]
 
 // Fill filters - which hitbox types to fill
 [ConfigBind<bool>("FillDanger", SectionFillFilters, true, "Fill Danger hitboxes (spikes, hazards)")]
@@ -102,7 +105,7 @@ public partial class Main
     private const string SectionLabels = "Label Options";
     private const string SectionLabelFilters = "Label Filters";
     private const string SectionDebug = "Debug";
-    private const string Version = "0.2.3";
+    private const string Version = "0.2.4";
 
     private static bool _isPaused = false;
     private static bool _isSlowMo = false;

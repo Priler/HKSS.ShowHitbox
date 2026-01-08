@@ -17,6 +17,10 @@ internal class DebugDrawColliderRuntimePatches
     private static bool FillEnabled => Configs.FillHitboxes;
     private static bool OutlineEnabled => Configs.OutlineHitboxes;
     private static float Alpha => Configs.FillAlpha;
+    
+    // current type being rendered (for disabled collider checks)
+    private static ColorType _currentRenderType = ColorType.None;
+    private static bool _currentIsPlayerAttack = false;
 
     // Private fields from DebugDrawColliderRuntime
     private static readonly FieldInfo TypeField =
@@ -135,6 +139,10 @@ internal class DebugDrawColliderRuntimePatches
             : HitboxColors.GetHitboxColor(go, type, 1f);
         Color fillColor = hitboxColor;
         fillColor.a = Alpha;
+
+        // store type for disabled collider checks
+        _currentRenderType = type;
+        _currentIsPlayerAttack = go.GetComponent<DamageEnemies>() != null;
 
         GL.PushMatrix();
         mat.SetPass(0);
@@ -456,7 +464,19 @@ internal class DebugDrawColliderRuntimePatches
     {
         if (isEnabled) return baseColor;
         
-        if (!Configs.ShowDisabledColliders) return Color.clear;
+        // check if we should show this disabled collider
+        bool showDisabled = Configs.ShowDisabledColliders;
+        
+        // check specific attack options
+        if (!showDisabled)
+        {
+            if (_currentIsPlayerAttack && Configs.ShowDisabledAttacksPlayer)
+                showDisabled = true;
+            else if (!_currentIsPlayerAttack && _currentRenderType == ColorType.Danger && Configs.ShowDisabledAttacksEnemy)
+                showDisabled = true;
+        }
+        
+        if (!showDisabled) return Color.clear;
         
         // dimmed color for disabled colliders
         Color dimmed = baseColor;
