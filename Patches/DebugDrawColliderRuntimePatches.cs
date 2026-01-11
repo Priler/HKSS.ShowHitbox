@@ -105,6 +105,13 @@ internal class DebugDrawColliderRuntimePatches
         ColorType type = GetType(__instance);
         GameObject go = __instance.gameObject;
         
+        // check runtime exclusions (allows config changes without restart)
+        if (ColliderScanner.IsExcluded(go.name))
+            return false;
+        
+        if (ColliderScanner.IsLayerExcluded(go.layer))
+            return false;
+        
         // fix: attack/projectile layer objects with type None should be treated as Danger
         // layers: 11 (Enemies), 12 (Projectiles), 17 (Attack), 22 (Enemy Attack)
         int layer = go.layer;
@@ -552,6 +559,9 @@ internal class DebugDrawColliderRuntimePatches
         {
             Color drawColor = GetColliderColor(color, poly.enabled);
             if (drawColor.a <= 0) continue;
+            
+            if (Configs.DebugLogging)
+                Utils.Logger.Info($"[Render] Drawing polygon: {inst.gameObject.name} | Paths: {poly.pathCount} | Enabled: {poly.enabled}");
 
             for (int pathIndex = 0; pathIndex < poly.pathCount; pathIndex++)
             {

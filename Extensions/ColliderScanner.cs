@@ -172,6 +172,13 @@ public class ColliderScanner : MonoBehaviour
             if (layer != AttackLayer1 && layer != AttackLayer2 && layer != AttackLayer3 && layer != AttackLayer4)
                 continue;
             
+            // check custom layer filters
+            if (IsLayerExcluded(layer)) continue;
+            
+            // if RequireDamageComponent is enabled, skip colliders without DamageHero
+            if (Configs.RequireDamageComponent && !col.gameObject.TryGetComponent<DamageHero>(out _))
+                continue;
+            
             TryAddDebugCollider(col.gameObject, DebugDrawColliderRuntime.ColorType.Danger);
         }
     }
@@ -223,20 +230,84 @@ public class ColliderScanner : MonoBehaviour
         }
     }
 
-    private static bool IsExcluded(string name)
+    public static bool IsExcluded(string name)
     {
+        // built-in exclude keywords
         foreach (var exclude in ExcludeKeywords)
         {
             if (name.IndexOf(exclude, StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
         }
         
+        // custom exclude keywords from config
+        string customExclude = Configs.CustomExcludeKeywords;
+        if (!string.IsNullOrWhiteSpace(customExclude))
+        {
+            var keywords = customExclude.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var keyword in keywords)
+            {
+                string trimmed = keyword.Trim();
+                if (!string.IsNullOrEmpty(trimmed) && 
+                    name.IndexOf(trimmed, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+        }
+        
         // check environmental keywords (excluded unless ShowEnvironmental is enabled)
         if (!Configs.ShowEnvironmental)
         {
+            // built-in environmental keywords
             foreach (var env in EnvironmentalKeywords)
             {
                 if (name.IndexOf(env, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            
+            // custom environmental keywords from config
+            string customEnv = Configs.CustomEnvironmentalKeywords;
+            if (!string.IsNullOrWhiteSpace(customEnv))
+            {
+                var keywords = customEnv.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var keyword in keywords)
+                {
+                    string trimmed = keyword.Trim();
+                    if (!string.IsNullOrEmpty(trimmed) && 
+                        name.IndexOf(trimmed, StringComparison.OrdinalIgnoreCase) >= 0)
+                        return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    public static bool IsLayerExcluded(int layer)
+    {
+        // check include layers (whitelist) - if set, ONLY these layers are allowed
+        string includeLayers = Configs.CustomIncludeLayers;
+        if (!string.IsNullOrWhiteSpace(includeLayers))
+        {
+            var layers = includeLayers.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            bool found = false;
+            foreach (var layerStr in layers)
+            {
+                if (int.TryParse(layerStr.Trim(), out int allowedLayer) && layer == allowedLayer)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return true; // not in whitelist, exclude it
+        }
+        
+        // check exclude layers (blacklist)
+        string excludeLayers = Configs.CustomExcludeLayers;
+        if (!string.IsNullOrWhiteSpace(excludeLayers))
+        {
+            var layers = excludeLayers.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var layerStr in layers)
+            {
+                if (int.TryParse(layerStr.Trim(), out int excludedLayer) && layer == excludedLayer)
                     return true;
             }
         }
@@ -268,19 +339,26 @@ public class ColliderScanner : MonoBehaviour
     {
         int instanceId = go.GetInstanceID();
         
-        if (!skipCache && _processedObjects.Contains(instanceId)) return;
+        // check exclusions FIRST (before cache) so config changes take effect immediately
+        string goName = go.name;
+        bool isDetectionZone = ContainsAnyIgnoreCase(goName, "range", "alert", "sense", "detect");
         
-        if (type == DebugDrawColliderRuntime.ColorType.Danger && _playerObjects.Contains(instanceId))
+        if (!isDetectionZone && IsExcluded(goName))
         {
             _processedObjects.Add(instanceId);
             return;
         }
-
-        string goName = go.name;
         
-        bool isDetectionZone = ContainsAnyIgnoreCase(goName, "range", "alert", "sense", "detect");
+        // check layer filter early
+        if (IsLayerExcluded(go.layer))
+        {
+            _processedObjects.Add(instanceId);
+            return;
+        }
         
-        if (!isDetectionZone && IsExcluded(goName))
+        if (!skipCache && _processedObjects.Contains(instanceId)) return;
+        
+        if (type == DebugDrawColliderRuntime.ColorType.Danger && _playerObjects.Contains(instanceId))
         {
             _processedObjects.Add(instanceId);
             return;

@@ -39,6 +39,13 @@ namespace HKSS.ShowHitbox;
 [ConfigBind<bool>("HideEnemyZones", SectionFill, false, "Hide enemy detection zones (range, alert, sense triggers)")]
 [ConfigBind<bool>("ShowEnvironmental", SectionFill, false, "Show environmental object hitboxes (grass, coral, wind forces)")]
 
+// Custom keywords - edit these to add your own filters (comma-separated)
+[ConfigBind<string>("CustomExcludeKeywords", SectionFill, "", "Custom keywords to always exclude (comma-separated, e.g. 'myobject,anotherthing')")]
+[ConfigBind<string>("CustomEnvironmentalKeywords", SectionFill, "", "Custom environmental keywords (comma-separated, hidden unless ShowEnvironmental is ON)")]
+[ConfigBind<string>("CustomExcludeLayers", SectionFill, "", "Layer numbers to exclude (comma-separated, e.g. '8,10,15')")]
+[ConfigBind<string>("CustomIncludeLayers", SectionFill, "", "If set, ONLY show these layers (comma-separated, e.g. '11,17'). Leave empty to show all layers.")]
+[ConfigBind<bool>("RequireDamageComponent", SectionFill, false, "Only show attack layer colliders that have DamageHero component (filters non-damage trigger colliders)")]
+
 // Fill filters - which hitbox types to fill
 [ConfigBind<bool>("FillDanger", SectionFillFilters, true, "Fill Danger hitboxes (spikes, hazards)")]
 [ConfigBind<bool>("FillEnemy", SectionFillFilters, true, "Fill Enemy hitboxes (things with health)")]
