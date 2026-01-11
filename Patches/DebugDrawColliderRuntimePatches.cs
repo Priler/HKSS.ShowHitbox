@@ -953,10 +953,12 @@ internal class DebugDrawColliderRuntimePatches
     private static bool IsDetectionZone(string name)
     {
         string nameLower = name.ToLowerInvariant();
-        return nameLower.Contains("range") || 
-               nameLower.Contains("alert") || 
-               nameLower.Contains("sense") || 
-               nameLower.Contains("detect");
+        
+        // detection zones typically have compound names like "detect range", "alert zone"
+        // exclude hitboxes like "Hero Detector" which is a single-word detector
+        return (nameLower.Contains("detect") && (nameLower.Contains("range") || nameLower.Contains("zone") || nameLower.Contains("area"))) ||
+               nameLower.Contains("alert") && (nameLower.Contains("zone") || nameLower.Contains("area")) ||
+               nameLower.Contains("sense") && (nameLower.Contains("range") || nameLower.Contains("zone") || nameLower.Contains("area"));
     }
 
     #endregion

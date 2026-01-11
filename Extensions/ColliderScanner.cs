@@ -37,7 +37,7 @@ public class ColliderScanner : MonoBehaviour
 
     private static readonly string[] ExcludeKeywords =
     {
-        "camera", "lock", "region", "trigger", "detector", "respawn",
+        "camera", "lock", "region", "trigger", "respawn",
         "transition", "gate", "bounds", "wall", "enviro",
         "terrain", "tilemap", "ground", "roof", "particle", "clamber",
         "inspect", "npc", "dialogue", "scene", "appearance", "boss scene",
@@ -176,7 +176,13 @@ public class ColliderScanner : MonoBehaviour
             if (IsLayerExcluded(layer)) continue;
             
             // if RequireDamageComponent is enabled, skip colliders without DamageHero
-            if (Configs.RequireDamageComponent && !col.gameObject.TryGetComponent<DamageHero>(out _))
+            // UNLESS it's a detection zone (those use triggers, not DamageHero)
+            bool isDetectionZone = col.gameObject.name.IndexOf("detect", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   col.gameObject.name.IndexOf("range", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   col.gameObject.name.IndexOf("alert", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   col.gameObject.name.IndexOf("sense", StringComparison.OrdinalIgnoreCase) >= 0;
+            
+            if (Configs.RequireDamageComponent && !isDetectionZone && !col.gameObject.TryGetComponent<DamageHero>(out _))
                 continue;
             
             TryAddDebugCollider(col.gameObject, DebugDrawColliderRuntime.ColorType.Danger);
@@ -315,6 +321,17 @@ public class ColliderScanner : MonoBehaviour
         return false;
     }
     
+    private static bool IsDetectionZone(string name)
+    {
+        string nameLower = name.ToLowerInvariant();
+        
+        // detection zones typically have compound names like "detect range", "alert zone"
+        // exclude hitboxes like "Hero Detector" which is a single-word detector
+        return (nameLower.Contains("detect") && (nameLower.Contains("range") || nameLower.Contains("zone") || nameLower.Contains("area"))) ||
+               nameLower.Contains("alert") && (nameLower.Contains("zone") || nameLower.Contains("area")) ||
+               nameLower.Contains("sense") && (nameLower.Contains("range") || nameLower.Contains("zone") || nameLower.Contains("area"));
+    }
+    
     private static bool ContainsAnyIgnoreCase(string text, params string[] keywords)
     {
         foreach (var keyword in keywords)
@@ -341,7 +358,8 @@ public class ColliderScanner : MonoBehaviour
         
         // check exclusions FIRST (before cache) so config changes take effect immediately
         string goName = go.name;
-        bool isDetectionZone = ContainsAnyIgnoreCase(goName, "range", "alert", "sense", "detect");
+        // detection zones have compound names like "detect range", not single words like "Hero Detector"
+        bool isDetectionZone = IsDetectionZone(goName);
         
         if (!isDetectionZone && IsExcluded(goName))
         {
