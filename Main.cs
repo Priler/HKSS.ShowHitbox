@@ -93,6 +93,8 @@ namespace HKSS.ShowHitbox;
 
 // Debug options
 [ConfigBind<bool>("DebugLogging", SectionDebug, false, "Log info about scanned colliders to help identify missing hitboxes")]
+[ConfigBind<bool>("ProjectileDebug", SectionDebug, false, "Scan and log ALL visual objects (sprites, particles, meshes) to find hidden projectiles")]
+[ConfigBind<KeyCode>("ProjectileScanKey", SectionDebug, KeyCode.F9, "Key to trigger a one-time projectile scan (logs to BepInEx console)")]
 
 public partial class Main
 {
@@ -105,7 +107,7 @@ public partial class Main
     private const string SectionLabels = "Label Options";
     private const string SectionLabelFilters = "Label Filters";
     private const string SectionDebug = "Debug";
-    private const string Version = "0.2.4";
+    private const string Version = "0.2.5";
 
     private static bool _isPaused = false;
     private static bool _isSlowMo = false;
@@ -126,6 +128,11 @@ public partial class Main
         if (Configs.EnableSlowMo && UnityInput.Current.GetKeyDown(Configs.SlowMoKey))
         {
             ToggleSlowMo();
+        }
+
+        if (UnityInput.Current.GetKeyDown(Configs.ProjectileScanKey))
+        {
+            ProjectileScanner.TriggerScan();
         }
 
         EnforceTimeScale();
@@ -167,6 +174,9 @@ public partial class Main
 
         // Initialize the collider scanner
         ColliderScanner.Initialize();
+        
+        // initialize projectile scanner
+        ProjectileScanner.Initialize();
     }
 
     private static void OnToggleHitbox(bool oldValue, bool newValue)

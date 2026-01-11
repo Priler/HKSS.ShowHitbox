@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections.Generic;
-using HutongGames.PlayMaker;
 using System;
 
 namespace HKSS.ShowHitbox.Behaviour;
@@ -14,19 +13,15 @@ public class ColliderScanner : MonoBehaviour
     private static ColliderScanner? _instance;
 
     // timing
-    private const float QuickScanInterval = 0.05f;
+    private const float QuickScanInterval = 0.1f;
     private const float FullScanInterval = 3f;
-    private const float KeywordScanInterval = 0.5f;
     
     private float _lastQuickScanTime;
     private float _lastFullScanTime;
-    private float _lastKeywordScanTime;
     private bool _needsRescan = true;
-    private bool _didInitialColliderScan;
 
     // caches
     private readonly HashSet<int> _processedObjects = new();
-    private readonly HashSet<int> _loggedObjects = new();
     private readonly HashSet<int> _playerObjects = new();
     
     // cached references
@@ -36,39 +31,17 @@ public class ColliderScanner : MonoBehaviour
     // cached arrays to reduce FindObjectsByType calls
     private HealthManager[]? _cachedHealthManagers;
     private DamageHero[]? _cachedDamageHeroes;
-    private Transform[]? _cachedBossLikeObjects;
     private float _lastHealthManagerCacheTime;
     private float _lastDamageHeroCacheTime;
-    private float _lastBossLikeCacheTime;
     private const float CacheInterval = 0.5f;
-
-    // FSM names (case-insensitive HashSet)
-    private static readonly HashSet<string> DamageFsmNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "damages_hero", "damage hero", "damagehero", "damages hero"
-    };
-    
-    // boss name patterns (for objects without HealthManager)
-    private static readonly string[] BossNamePatterns =
-    {
-        "boss", "effigy", "guardian", "knight", "enemy"
-    };
-
-    // keywords
-    private static readonly string[] AttackKeywords =
-    {
-        "hit", "slash", "attack", "damage", "hurt", "stab", "swing",
-        "needle", "sword", "weapon", "blade", "strike", "combo",
-        "projectile", "bullet", "shot", "beam", "thwip", "lunge",
-        "dash", "charge", "thrust", "poke", "jab", "catcher"
-    };
 
     private static readonly string[] ExcludeKeywords =
     {
         "camera", "lock", "region", "trigger", "detector", "respawn",
         "transition", "gate", "bounds", "wall", "enviro",
         "terrain", "tilemap", "ground", "roof", "particle", "clamber",
-        "inspect", "npc", "dialogue", "scene", "appearance", "boss scene"
+        "inspect", "npc", "dialogue", "scene", "appearance", "boss scene",
+        "cage", "trapbench", "enemy collider"
     };
     
     // environmental objects (excluded unless ShowEnvironmental is enabled)
@@ -77,9 +50,11 @@ public class ColliderScanner : MonoBehaviour
         "slashwind", "attack force", "grass", "coral", "wind"
     };
     
-    // attack layers
-    private const int AttackLayer1 = 11;
-    private const int AttackLayer2 = 17;
+    // attack/projectile layers
+    private const int AttackLayer1 = 11;  // Enemies
+    private const int AttackLayer2 = 12;  // Projectiles
+    private const int AttackLayer3 = 17;  // Attack
+    private const int AttackLayer4 = 22;  // Enemy Attack
 
     public static void Initialize()
     {
@@ -95,16 +70,12 @@ public class ColliderScanner : MonoBehaviour
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         _needsRescan = true;
-        _didInitialColliderScan = false;
         _processedObjects.Clear();
-        _loggedObjects.Clear();
         _playerObjects.Clear();
         _cachedHero = null;
         _heroSearched = false;
         _cachedHealthManagers = null;
         _cachedDamageHeroes = null;
-        _cachedBossLikeObjects = null;
-        _lastKeywordScanTime = 0;
     }
 
     private void Update()
@@ -153,18 +124,16 @@ public class ColliderScanner : MonoBehaviour
     {
         CachePlayerHierarchy();
         
-        // scan HealthManager children
+        // scan HealthManager children (enemies/bosses)
         var healthManagers = GetHealthManagers();
         for (int i = 0; i < healthManagers.Length; i++)
         {
             var hm = healthManagers[i];
             if (hm != null)
-                ScanChildren(hm.transform, DebugDrawColliderRuntime.ColorType.Danger, !_didInitialColliderScan);
+                ScanChildren(hm.transform, DebugDrawColliderRuntime.ColorType.Danger);
         }
-        
-        // scan boss-like objects by name pattern (for those without HealthManager)
-        ScanBossLikeObjects();
 
+        // scan DamageHero objects (things that damage the player)
         var damageHeroes = GetDamageHeroes();
         for (int i = 0; i < damageHeroes.Length; i++)
         {
@@ -173,6 +142,7 @@ public class ColliderScanner : MonoBehaviour
                 TryAddDebugCollider(dh.gameObject, DebugDrawColliderRuntime.ColorType.Danger);
         }
 
+        // scan DamageEnemies objects (player attacks)
         var damageEnemies = FindObjectsByType<DamageEnemies>(FindObjectsSortMode.None);
         for (int i = 0; i < damageEnemies.Length; i++)
         {
@@ -181,68 +151,29 @@ public class ColliderScanner : MonoBehaviour
                 TryAddDebugCollider(de.gameObject, DebugDrawColliderRuntime.ColorType.Enemy);
         }
         
-        // scan ReceivedDamageProxy objects (boss weak points/hurtboxes)
-        var damageProxies = FindObjectsByType<ReceivedDamageProxy>(FindObjectsSortMode.None);
-        for (int i = 0; i < damageProxies.Length; i++)
-        {
-            var dp = damageProxies[i];
-            if (dp != null)
-                ScanChildren(dp.transform, DebugDrawColliderRuntime.ColorType.Danger);
-        }
+        // scan attack layer colliders (for objects without DamageHero like Lost Lace cross slash)
+        ScanAttackLayerColliders();
 
-        ScanFsmDamageObjects();
-
-        if (!_didInitialColliderScan)
-        {
-            _didInitialColliderScan = true;
-            ScanAllColliders();
-        }
-
+        // player highlight
         if (Configs.HighlightPlayer && _cachedHero != null)
             ScanChildren(_cachedHero.transform, DebugDrawColliderRuntime.ColorType.Enemy);
     }
     
-    private void ScanBossLikeObjects()
+    private void ScanAttackLayerColliders()
     {
-        var bossLike = GetBossLikeObjects();
-        for (int i = 0; i < bossLike.Length; i++)
+        var colliders = FindObjectsByType<Collider2D>(FindObjectsSortMode.None);
+        for (int i = 0; i < colliders.Length; i++)
         {
-            var tr = bossLike[i];
-            if (tr != null)
-                ScanChildren(tr, DebugDrawColliderRuntime.ColorType.Danger);
+            var col = colliders[i];
+            if (col == null || !col.enabled || !col.gameObject.activeInHierarchy) continue;
+            
+            int layer = col.gameObject.layer;
+            // layers: 11 (Enemies), 12 (Projectiles), 17 (Attack), 22 (Enemy Attack)
+            if (layer != AttackLayer1 && layer != AttackLayer2 && layer != AttackLayer3 && layer != AttackLayer4)
+                continue;
+            
+            TryAddDebugCollider(col.gameObject, DebugDrawColliderRuntime.ColorType.Danger);
         }
-    }
-    
-    private Transform[] GetBossLikeObjects()
-    {
-        float time = Time.unscaledTime;
-        if (_cachedBossLikeObjects == null || time - _lastBossLikeCacheTime >= CacheInterval)
-        {
-            _lastBossLikeCacheTime = time;
-            
-            var allTransforms = FindObjectsByType<Transform>(FindObjectsSortMode.None);
-            var result = new List<Transform>();
-            
-            for (int i = 0; i < allTransforms.Length; i++)
-            {
-                var tr = allTransforms[i];
-                if (tr == null) continue;
-                if (tr.TryGetComponent<HealthManager>(out _)) continue;
-                
-                string name = tr.name;
-                foreach (var pattern in BossNamePatterns)
-                {
-                    if (name.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        result.Add(tr);
-                        break;
-                    }
-                }
-            }
-            
-            _cachedBossLikeObjects = result.ToArray();
-        }
-        return _cachedBossLikeObjects;
     }
     
     private void CachePlayerHierarchy()
@@ -264,162 +195,31 @@ public class ColliderScanner : MonoBehaviour
             CacheChildrenIds(child);
     }
 
+    private float _lastAttackLayerScanTime;
+    private const float AttackLayerScanInterval = 0.15f;
+
     private void QuickScan()
     {
+        // scan DamageHero objects
         var damageHeroes = GetDamageHeroes();
         for (int i = 0; i < damageHeroes.Length; i++)
         {
             var dh = damageHeroes[i];
-            if (dh != null)
-                TryAddDebugCollider(dh.gameObject, DebugDrawColliderRuntime.ColorType.Danger);
+            if (dh == null) continue;
+            
+            int instanceId = dh.gameObject.GetInstanceID();
+            if (_processedObjects.Contains(instanceId)) continue;
+            if (_playerObjects.Contains(instanceId)) continue;
+            
+            TryAddDebugCollider(dh.gameObject, DebugDrawColliderRuntime.ColorType.Danger);
         }
         
-        var healthManagers = GetHealthManagers();
-        for (int i = 0; i < healthManagers.Length; i++)
-        {
-            var hm = healthManagers[i];
-            if (hm != null)
-                ScanChildren(hm.transform, DebugDrawColliderRuntime.ColorType.Danger);
-        }
-        
-        // scan boss-like objects (without HealthManager)
-        var bossLike = GetBossLikeObjects();
-        for (int i = 0; i < bossLike.Length; i++)
-        {
-            var tr = bossLike[i];
-            if (tr != null)
-                ScanChildren(tr, DebugDrawColliderRuntime.ColorType.Danger);
-        }
-        
-        // scan ReceivedDamageProxy objects (boss weak points)
-        var damageProxies = FindObjectsByType<ReceivedDamageProxy>(FindObjectsSortMode.None);
-        for (int i = 0; i < damageProxies.Length; i++)
-        {
-            var dp = damageProxies[i];
-            if (dp != null)
-                ScanChildren(dp.transform, DebugDrawColliderRuntime.ColorType.Danger);
-        }
-        
-        // scan for new colliders with attack keywords (throttled)
+        // throttled attack layer scan for objects without DamageHero
         float time = Time.unscaledTime;
-        if (time - _lastKeywordScanTime >= KeywordScanInterval)
+        if (time - _lastAttackLayerScanTime >= AttackLayerScanInterval)
         {
-            _lastKeywordScanTime = time;
-            ScanNewAttackColliders();
-        }
-    }
-    
-    private void ScanNewAttackColliders()
-    {
-        var allColliders = FindObjectsByType<Collider2D>(FindObjectsSortMode.None);
-        for (int i = 0; i < allColliders.Length; i++)
-        {
-            var col = allColliders[i];
-            if (col == null) continue;
-            
-            var go = col.gameObject;
-            int instanceId = go.GetInstanceID();
-            
-            if (_processedObjects.Contains(instanceId)) continue;
-            if (_playerObjects.Contains(instanceId)) continue;
-            
-            string goName = go.name;
-            bool isAttack = false;
-            
-            foreach (var keyword in AttackKeywords)
-            {
-                if (goName.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    isAttack = true;
-                    break;
-                }
-            }
-            
-            if (isAttack)
-                TryAddDebugCollider(go, DebugDrawColliderRuntime.ColorType.Danger);
-        }
-    }
-
-    private void ScanFsmDamageObjects()
-    {
-        var allFsms = FindObjectsByType<PlayMakerFSM>(FindObjectsSortMode.None);
-        for (int i = 0; i < allFsms.Length; i++)
-        {
-            var fsm = allFsms[i];
-            if (fsm == null) continue;
-
-            int instanceId = fsm.gameObject.GetInstanceID();
-            if (_processedObjects.Contains(instanceId)) continue;
-
-            string? fsmName = fsm.FsmName;
-            if (string.IsNullOrEmpty(fsmName) || !DamageFsmNames.Contains(fsmName)) continue;
-
-            if (IsExcluded(fsm.gameObject.name)) continue;
-
-            TryAddDebugCollider(fsm.gameObject, DebugDrawColliderRuntime.ColorType.Danger);
-            ScanChildren(fsm.transform, DebugDrawColliderRuntime.ColorType.Danger);
-        }
-    }
-
-    private void ScanAllColliders()
-    {
-        var allColliders = FindObjectsByType<Collider2D>(FindObjectsSortMode.None);
-        for (int i = 0; i < allColliders.Length; i++)
-        {
-            var col = allColliders[i];
-            if (col == null) continue;
-
-            var go = col.gameObject;
-            int instanceId = go.GetInstanceID();
-
-            // cheapest checks first
-            if (_processedObjects.Contains(instanceId)) continue;
-            if (_playerObjects.Contains(instanceId)) continue;
-            
-            // layer check before string ops
-            int layer = go.layer;
-            bool isAttackLayer = layer == AttackLayer1 || layer == AttackLayer2;
-
-            string goName = go.name;
-
-            // detection zones
-            if (ContainsAnyIgnoreCase(goName, "range", "alert", "sense", "detect"))
-            {
-                TryAddDebugCollider(go, DebugDrawColliderRuntime.ColorType.Danger);
-                continue;
-            }
-
-            if (IsExcluded(goName)) continue;
-            
-            string? parentName = go.transform.parent?.name;
-            if (parentName != null && IsExcluded(parentName)) continue;
-            
-            if (go.TryGetComponent<CameraLockArea>(out _)) continue;
-            if (go.TryGetComponent<DamageEnemies>(out _)) continue;
-
-            bool isLikelyAttack = isAttackLayer;
-
-            if (!isLikelyAttack)
-            {
-                foreach (var keyword in AttackKeywords)
-                {
-                    if (goName.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        (parentName != null && parentName.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0))
-                    {
-                        isLikelyAttack = true;
-                        break;
-                    }
-                }
-            }
-
-            if (isLikelyAttack)
-                TryAddDebugCollider(go, DebugDrawColliderRuntime.ColorType.Danger);
-
-            if (Configs.DebugLogging && !_loggedObjects.Contains(instanceId))
-            {
-                _loggedObjects.Add(instanceId);
-                LogColliderInfo(go, col);
-            }
+            _lastAttackLayerScanTime = time;
+            ScanAttackLayerColliders();
         }
     }
 
@@ -454,16 +254,13 @@ public class ColliderScanner : MonoBehaviour
         return false;
     }
 
-    private void ScanChildren(Transform parent, DebugDrawColliderRuntime.ColorType type, bool logBossChildren = false)
+    private void ScanChildren(Transform parent, DebugDrawColliderRuntime.ColorType type)
     {
         foreach (Transform child in parent)
         {
-            if (logBossChildren && Configs.DebugLogging && child.TryGetComponent<Collider2D>(out var col))
-                Utils.Logger.Info($"[Scanner] Boss child: {parent.name}/{child.name} | Has collider: {col.GetType().Name} | Enabled: {col.enabled}");
-            
             TryAddDebugCollider(child.gameObject, type, skipCache: true);
             if (child.childCount > 0)
-                ScanChildren(child, type, logBossChildren);
+                ScanChildren(child, type);
         }
     }
 
@@ -521,42 +318,6 @@ public class ColliderScanner : MonoBehaviour
             _processedObjects.Add(instanceId);
     }
 
-    private void LogColliderInfo(GameObject go, Collider2D col)
-    {
-        string fullPath = GetFullPath(go);
-
-        if (fullPath.IndexOf("Terrain", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            fullPath.IndexOf("Tilemap", StringComparison.OrdinalIgnoreCase) >= 0 ||
-            fullPath.IndexOf("Ground", StringComparison.OrdinalIgnoreCase) >= 0 || 
-            fullPath.IndexOf("Chunk", StringComparison.OrdinalIgnoreCase) >= 0)
-            return;
-
-        var components = go.GetComponents<Component>();
-        var names = new List<string>(components.Length);
-        foreach (var c in components)
-        {
-            if (c != null)
-                names.Add(c.GetType().Name);
-        }
-
-        Utils.Logger.Info($"[Scanner] Collider: {fullPath} | Layer: {LayerMask.LayerToName(go.layer)} ({go.layer}) | " +
-                         $"Type: {col.GetType().Name} | Components: {string.Join(", ", names)}");
-    }
-
-    private static string GetFullPath(GameObject go)
-    {
-        string path = go.name;
-        Transform parent = go.transform.parent;
-        int depth = 0;
-        while (parent != null && depth < 4)
-        {
-            path = parent.name + "/" + path;
-            parent = parent.parent;
-            depth++;
-        }
-        return path;
-    }
-
     public static void ClearCache()
     {
         if (_instance != null)
@@ -564,10 +325,8 @@ public class ColliderScanner : MonoBehaviour
             _instance._processedObjects.Clear();
             _instance._playerObjects.Clear();
             _instance._needsRescan = true;
-            _instance._didInitialColliderScan = false;
             _instance._cachedHealthManagers = null;
             _instance._cachedDamageHeroes = null;
-            _instance._cachedBossLikeObjects = null;
         }
     }
 

@@ -49,9 +49,18 @@ internal class DebugDrawColliderRuntimePatches
     [HarmonyPrefix]
     private static bool AddOrUpdatePrefix(GameObject gameObject, ColorType type, ref bool forceAdd)
     {
-        // always force add so hitboxes are registered even when display is off
-        // this ensures boss attacks that spawn briefly are captured
         forceAdd = true;
+        
+        // log attack layer registrations when debug mode is on
+        if (Configs.DebugLogging && gameObject != null)
+        {
+            int layer = gameObject.layer;
+            if (layer == 11 || layer == 12 || layer == 17 || layer == 22)
+            {
+                Utils.Logger.Info($"[Render] AddOrUpdate called for attack object: {gameObject.name} | Type: {type} | Layer: {layer}");
+            }
+        }
+        
         return true;
     }
 
@@ -95,6 +104,18 @@ internal class DebugDrawColliderRuntimePatches
 
         ColorType type = GetType(__instance);
         GameObject go = __instance.gameObject;
+        
+        // fix: attack/projectile layer objects with type None should be treated as Danger
+        // layers: 11 (Enemies), 12 (Projectiles), 17 (Attack), 22 (Enemy Attack)
+        int layer = go.layer;
+        bool isAttackLayer = layer == 11 || layer == 12 || layer == 17 || layer == 22;
+        if (type == ColorType.None && isAttackLayer)
+        {
+            if (go.GetComponent<DamageEnemies>() != null)
+                type = ColorType.Enemy;
+            else
+                type = ColorType.Danger;
+        }
 
         // skip enemy body colliders (objects with HealthManager)
         if (Configs.HideEnemyBody)
